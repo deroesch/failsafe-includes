@@ -1,0 +1,86 @@
+#
+# Basic CI pipeline for Java, Version 1.10
+#
+    
+stages:
+  - compile_scan_and_unit_test
+  - integration_tests
+  - install
+  - publish
+    
+# Maven dependencies cache.  Let all builds of the same
+# branch use the same cache.  This isn't guaranteed to
+# work but speeds things up dramatically when it does.
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .m2/repository
+  
+# Let's include a handsome job header.
+before_script:
+   - echo "Starting ${CI_JOB_NAME}"
+   - date
+  
+# We conflate the compilation, unit test, code scanning
+# steps together because Sonar likes to do them all at the
+# same time.  Publish the unit test reports and other
+# Sonar / Jacoco products as stage artifacts.
+Compilation and Unit Tests:
+  stage: compile_scan_and_unit_test
+  tags:
+    - jdk8-support
+  script:
+    - mvn -B $MAVEN_CLI_OPTS test sonar:sonar -Dsonar.host.url=https://sonarqube.test.bnymellon.net/ -Dsonar.login=$SONAR_API_TOKEN
+  artifacts:
+    paths:
+    - target/surefire-reports/**
+    - target/site/jacoco/**
+    reports:
+      junit:
+      - target/surefire-reports/**
+   
+# Make sure unit tests don't run.  We already ran them in
+# the prior stage.  Publish the integration test reports
+# as stage artifacts.
+Integration Tests:
+  stage: integration_tests
+  tags:
+    - jdk8-support
+  script:
+    - mvn -B $MAVEN_CLI_OPTS verify -DskipTests
+  artifacts:
+    paths:
+    - target/failsafe-reports/**
+    reports:
+      junit:
+      - target/failsafe-reports/**
+   
+# Push to local repo.  Skip testing since it's already done.
+Install:
+  stage: install
+  tags:
+    - jdk8-support
+  script:
+    - mvn -B $MAVEN_CLI_OPTS install -DskipTests -DskipITs
+  artifacts:
+    paths:
+    - target/*.jar
+   
+# Push to Nexus.  Skip testing since it's already done.
+Publish:
+  stage: publish
+  tags:
+    - jdk8-support
+  script:
+    - mvn -B $MAVEN_CLI_OPTS deploy -DskipTests -DskipITs
+  artifacts:
+    paths:
+    - target/*.jar
+  only:
+    - master
+    
+# 1.7 added selective archiving
+# 1.8 updated sonar URL
+# 1.9 fixed test flags and archiving
+# 1.10 Use quiet batch mode to minimize logging -B
+---
